@@ -1,83 +1,143 @@
-# Local WordPress development
+# WordPress container
 
-## Files
+Local WordPress development with Docker Compose, using an image built from the official WordPress image and a MySQL database.
+
+## Repository layout
 
 ```text
 wordpress-container/
-|-- .env.example       # Safe-to-commit environment template
-|-- .env               # Local credentials; ignored by Git
-|-- .gitignore
 |-- .dockerignore
-|-- Dockerfile         # Builds the local WordPress image
+|-- .env.example
+|-- .github/
+|   `-- workflows/
+|       `-- compose-ci-cd.yml
+|-- .gitignore
+|-- Dockerfile
 |-- docker-compose.yml
-|-- README.md
+|-- wp-content/        # Local themes, plugins, and uploads, mounted into WordPress
+`-- README.md
 ```
 
-## Configure and start
+Create a local `.env` from `.env.example`. It is excluded from Git and from the Docker build context.
 
-1. Copy `.env.example` to `.env`.
-2. Replace both password placeholders with different, long random values. Keep `.env` private.
-3. Start the services:
+## Requirements
+
+- Docker Desktop (Windows/macOS) or Docker Engine (Linux)
+- Docker Compose v2 (`docker compose`)
+
+## Run locally
+
+1. Copy `.env.example` to `.env` and replace the two password placeholders with different, long random passwords.
+
+   ```powershell
+   Copy-Item .env.example .env
+   ```
+
+2. Build the WordPress image and start the services:
 
    ```powershell
    docker compose up -d --build
    ```
 
-4. Open <http://localhost:8080>.
+3. Finish WordPress setup at <http://localhost:8080>.
 
-The `database` service uses the database name and user from `.env`. Its `MYSQL_PASSWORD` and WordPress's `WORDPRESS_DB_PASSWORD` are sourced from the same `MYSQL_PASSWORD` value so they stay in sync.
+Compose builds `local-wordpress:latest` from `Dockerfile`, which currently extends the official `wordpress:latest` image. MySQL uses `mysql:latest`. WordPress waits for the database health check before starting.
 
-## Manage the environment
+### Configuration
+
+The `.env` file supplies:
+
+| Variable | Purpose |
+| --- | --- |
+| `MYSQL_ROOT_PASSWORD` | MySQL administrative password |
+| `WORDPRESS_DB_NAME` | Database created for WordPress |
+| `WORDPRESS_DB_USER` | Database user created for WordPress |
+| `MYSQL_PASSWORD` | Password for the WordPress database user |
+
+The same `MYSQL_PASSWORD` value is passed to MySQL and WordPress so their database credentials match. Keep `.env` private; do not commit it.
+
+### Common commands
 
 ```powershell
-# View service status and follow logs
+# Check service status and follow logs
 docker compose ps
 docker compose logs -f
 
-# Stop containers without removing them or their data
+# Stop containers; preserve containers and data
 docker compose stop
 
-# Start stopped containers again
+# Restart stopped containers
 docker compose start
 
-# Remove containers and the Compose network; preserve named volumes and data
+# Remove containers and network; preserve named volumes and data
 docker compose down
 
-# Remove the environment and permanently delete WordPress and database data
+# Also permanently delete WordPress and MySQL data
 docker compose down --volumes
 ```
 
-## GitHub Actions deployment
+## Customize the WordPress image
 
-The workflow at `.github/workflows/compose-ci-cd.yml` validates the Compose configuration and builds the WordPress image on pushes and pull requests. A push to `main` deploys the stack to a remote Docker host over SSH.
+Add required PHP extensions, system packages, or image configuration to `Dockerfile`, then rebuild:
 
-### Prepare the server
+```powershell
+docker compose up -d --build wordpress
+```
 
-Install Docker Engine with the Compose plugin and configure SSH access for a deployment user that can run Docker. In the user's home directory, create `wordpress-container/.env` with the same variables as `.env.example`; protect it with `chmod 600 wordpress-container/.env`. The workflow copies `docker-compose.yml` and `Dockerfile`; credentials stay on the server. Ensure the server firewall permits inbound SSH.
+The `.dockerignore` file keeps `.env`, Git metadata, and workflow files out of the image build context.
 
-The Compose port mapping binds WordPress to `127.0.0.1:8080`, including on the server. To serve it publicly, configure a host reverse proxy with TLS to forward traffic to that loopback address; do not expose the WordPress container port directly unless you intentionally change the port binding and firewall rules.
+## Develop with `wp-content`
 
-### Configure GitHub Actions secrets
+The repository's `wp-content/` folder is bind-mounted at `/var/www/html/wp-content`. Add or edit themes, plugins, and other content there; changes are available in the running container immediately. The folder is tracked by Git, so commit only content you intend to share.
 
-Add these repository secrets under **Settings → Secrets and variables → Actions**:
+The Dockerfile also copies `wp-content/` into the built image. During local Compose runs, the bind mount overlays that image directory, so the local folder remains the source of truth.
+
+The named `wordpress_data` volume still persists the rest of the WordPress installation. The host `wp-content` folder takes precedence over the copy at that path in the volume. If you already have an existing WordPress volume with content, export it before recreating the service with the bind mount; otherwise the mount will hide the volume's existing `wp-content` files:
+
+```powershell
+New-Item -ItemType Directory -Force .\wp-content
+docker compose cp wordpress:/var/www/html/wp-content/. .\wp-content
+docker compose up -d --force-recreate wordpress
+```
+
+For a fresh install the repository folder is already present. If WordPress cannot write uploads or plugin files, check the host folder permissions. The deployment workflow transfers this folder to the server as well.
+
+## GitHub Actions CI/CD
+
+The workflow at `.github/workflows/compose-ci-cd.yml`:
+
+- Validates the Compose configuration and builds the WordPress image on pushes and pull requests.
+- Deploys only on a push to `main`, after validation succeeds.
+- Connects to a remote Docker host over SSH, transfers `docker-compose.yml`, `Dockerfile`, and `wp-content/`, pulls the MySQL image, builds WordPress on the server, and applies the Compose stack.
+
+### Set up the deployment server
+
+Install Docker Engine with the Compose plugin. Configure SSH access for a deployment user with permission to run Docker. In that user's home directory, create `wordpress-container/.env` with the variables listed above and protect it:
+
+```sh
+chmod 600 ~/wordpress-container/.env
+```
+
+The workflow does not copy `.env`; server credentials remain on the server. It transfers `docker-compose.yml`, `Dockerfile`, and `wp-content`. The Compose file binds WordPress to `127.0.0.1:8080`, so it is not directly exposed to the internet. To serve it remotely, configure a TLS-enabled reverse proxy on the server to forward requests to that loopback address.
+
+### Add repository secrets
+
+In **Settings → Secrets and variables → Actions**, add:
 
 | Secret | Value |
 | --- | --- |
 | `DEPLOY_HOST` | Server hostname or IP address |
 | `DEPLOY_USER` | SSH deployment username |
-| `DEPLOY_SSH_KEY` | Private key (preferably Ed25519) for that user's SSH access |
+| `DEPLOY_SSH_KEY` | Private SSH key for that user |
 | `DEPLOY_KNOWN_HOSTS` | Verified SSH host-key line for the server |
 
-Obtain the host key separately and verify its fingerprint through a trusted channel before saving it. Do not disable SSH host-key checking or use an unverified `ssh-keyscan` result.
+Verify the server host-key fingerprint through a trusted channel before saving it. Do not disable SSH host-key checking or rely on an unverified host key.
 
-After a validated push to `main`, the workflow copies the Compose and build files to `~/wordpress-container`, pulls the MySQL image, builds the WordPress image on the server, and recreates services as needed. Pull requests and pushes to other branches run validation and build checks only.
+## Security and data notes
 
-## Security and development notes
-
-- The Dockerfile builds the local WordPress image on top of the official `wordpress:latest` image; MySQL uses `mysql:latest`. Add site-specific PHP extensions or configuration to the Dockerfile as needed.
-- Credentials are kept in the untracked `.env` file; only the placeholder `.env.example` should be committed. Never put real credentials in source control.
-- WordPress is published only on the host's loopback interface (`127.0.0.1:8080`). MySQL has no published host port and is reachable only by WordPress over the private Compose network.
-- Separate named volumes persist the WordPress files and MySQL data across container recreation.
-- The database health check gates WordPress startup until MySQL is ready. `unless-stopped` restarts containers after failures while allowing you to intentionally stop them.
-- `latest` tags track upstream releases and can change on a later pull. For reproducible team environments, agree on explicit image versions and update them deliberately.
-- The Compose stack is intended for local development or a controlled development server, not production deployment. Do not expose it to an untrusted network.
+- MySQL has no published host port; service traffic uses the private Compose network.
+- WordPress is published only on the host's loopback interface, on port `8080`.
+- Named volumes persist WordPress files and MySQL data when containers are recreated.
+- `docker compose down` preserves the volumes. `docker compose down --volumes` deletes them and their data.
+- The `latest` image tags can refer to newer releases after a future pull. Pin versions when reproducible deployments are needed.
+- This setup is for local development or a controlled development server, not production deployment.

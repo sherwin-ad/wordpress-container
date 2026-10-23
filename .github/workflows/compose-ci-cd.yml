@@ -44,7 +44,7 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
 
-      - name: Copy Compose and Docker build files to server
+      - name: Copy Compose, build, and WordPress content files to server
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
@@ -53,7 +53,10 @@ jobs:
             "mkdir -p wordpress-container"
           scp -i "$HOME/.ssh/deploy_key" -o BatchMode=yes \
             docker-compose.yml Dockerfile \
-            "$DEPLOY_USER@$DEPLOY_HOST:wordpress-container/docker-compose.yml"
+            "$DEPLOY_USER@$DEPLOY_HOST:wordpress-container/"
+          scp -r -i "$HOME/.ssh/deploy_key" -o BatchMode=yes \
+            wp-content \
+            "$DEPLOY_USER@$DEPLOY_HOST:wordpress-container/"
 
       - name: Build and deploy
         env:

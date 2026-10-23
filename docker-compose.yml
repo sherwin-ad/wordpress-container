@@ -43,6 +43,7 @@ services:
       WORDPRESS_DB_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
     volumes:
       - wordpress_data:/var/www/html
+      - ./wp-content:/var/www/html/wp-content
     networks:
       - wordpress_network
 
