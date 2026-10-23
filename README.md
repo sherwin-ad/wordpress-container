@@ -116,39 +116,73 @@ For a fresh install the repository folder is already present. If WordPress canno
 
 ## GitHub Actions CI/CD
 
-The workflow at `.github/workflows/compose-ci-cd.yml`:
+The workflow at `.github/workflows/compose-ci-cd.yml` validates Compose on pushes and pull requests. A validated push to `main` deploys automatically; you can also start a deployment manually from the Actions tab on `main`. Deployment connects to the server over SSH, pulls `origin/main` and the latest images, then runs `docker compose down` followed by `docker compose up -d --remove-orphans`.
 
-- Validates the Compose configuration on pushes and pull requests.
-- Deploys only on a push to `main`, after validation succeeds.
-- Connects to a remote Docker host over SSH, transfers `docker-compose.yml` and `wp-content/`, pulls the configured images, and applies the Compose stack.
+### Step-by-step setup
 
-### Set up the deployment server
+1. **Prepare the server.** Install Git, Docker Engine, and the Docker Compose plugin. Create a deployment user with SSH access and permission to run Docker. Restrict inbound port `8080` with the server firewall or configure a TLS-enabled reverse proxy in front of it.
 
-Install Docker Engine with the Compose plugin. Configure SSH access for a deployment user with permission to run Docker. In that user's home directory, create `wordpress-container/.env` with the variables listed above and protect it:
+2. **Clone the repository on the server.** As the deployment user, clone the repository to the exact path expected by the workflow:
 
-```sh
-chmod 600 ~/wordpress-container/.env
-```
+   ```sh
+   git clone <repository-url> ~/wordpress-container
+   cd ~/wordpress-container
+   ```
 
-The workflow does not copy `.env`; server credentials remain on the server. It transfers `docker-compose.yml` and `wp-content`. The Compose file binds WordPress to `127.0.0.1:8080`, so it is not directly exposed to the internet. To serve it remotely, configure a TLS-enabled reverse proxy on the server to forward requests to that loopback address.
+   The checkout must use `origin` for the GitHub remote and `main` as the deployment branch. For a private repository, give this server a separate read-only GitHub deploy key or another non-interactive Git credential so `git pull origin main` can authenticate. The SSH key used by Actions to log in to the server does not provide Git access from the server to GitHub.
 
-### Add repository secrets
+3. **Create the server environment file.** Create `~/wordpress-container/.env` with the values described in [Configuration](#configuration), using unique passwords. Do not commit or copy this file from GitHub Actions. Restrict its permissions:
 
-In **Settings → Secrets and variables → Actions**, add:
+   ```sh
+   chmod 600 ~/wordpress-container/.env
+   ```
 
-| Secret | Value |
-| --- | --- |
-| `DEPLOY_HOST` | Server hostname or IP address |
-| `DEPLOY_USER` | SSH deployment username |
-| `DEPLOY_SSH_KEY` | Private SSH key for that user |
-| `DEPLOY_KNOWN_HOSTS` | Verified SSH host-key line for the server |
+4. **Create an SSH key for GitHub Actions.** On a trusted machine, generate a dedicated key pair for Actions-to-server access:
 
-Verify the server host-key fingerprint through a trusted channel before saving it. Do not disable SSH host-key checking or rely on an unverified host key.
+   ```sh
+   ssh-keygen -t ed25519 -C github-actions-wordpress-deploy -f github-actions-wordpress -N ""
+   ```
+
+   Add the contents of `github-actions-wordpress.pub` to the deployment user's `~/.ssh/authorized_keys` on the server. Keep the private key file secret; you will add its contents to GitHub in the next step. Test SSH access with the key before configuring Actions.
+
+5. **Get and verify the server's SSH host key.** This is the server's public identity, not the Actions login key from Step 4. The workflow checks it against `DEPLOY_KNOWN_HOSTS` before connecting, which helps prevent connecting to an impersonated server.
+
+   On the server (or through its trusted console), have an administrator print the SHA-256 fingerprint of its Ed25519 SSH host key:
+
+   ```sh
+   sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256
+   ```
+
+   On a trusted machine, collect the public key line for the exact hostname or IP address you will put in `DEPLOY_HOST` (this example assumes SSH port 22):
+
+   ```sh
+   ssh-keyscan -t ed25519 -p 22 your-server.example.com > server_known_hosts
+   ssh-keygen -lf server_known_hosts -E sha256
+   ```
+
+   Compare the `SHA256:...` fingerprint from this output with the fingerprint obtained through the trusted server console or administrator. They must match exactly. `ssh-keyscan` only collects a key; by itself it does not verify that key belongs to your server. If the fingerprints do not match, stop and confirm the hostname, IP, and key with the administrator rather than adding the entry.
+
+   Once verified, copy the complete line from `server_known_hosts` into the `DEPLOY_KNOWN_HOSTS` repository secret in Step 6. Its hostname/IP must match `DEPLOY_HOST`. Keep the host key public; do not confuse it with or upload the private login key.
+
+6. **Add GitHub repository secrets.** Open the repository's **Settings → Secrets and variables → Actions**, choose **New repository secret**, and add each of the following:
+
+   | Secret | Value |
+   | --- | --- |
+   | `DEPLOY_HOST` | Server hostname or IP address |
+   | `DEPLOY_USER` | SSH deployment username |
+   | `DEPLOY_SSH_KEY` | Entire contents of the private `github-actions-wordpress` key |
+   | `DEPLOY_KNOWN_HOSTS` | Verified known-hosts entry for the server |
+
+7. **Deploy and verify.** Push a change to `main`. In the repository's **Actions** tab, open the **WordPress Compose CI/CD** run. Confirm validation and deployment succeed, then check the server with `docker compose -f ~/wordpress-container/docker-compose.yml --env-file ~/wordpress-container/.env ps` and visit the site.
+
+   To deploy manually, select **WordPress Compose CI/CD**, choose **Run workflow**, select `main`, and start the run. Pull requests run validation only; they do not deploy.
+
+`docker compose down` does not remove named volumes, so WordPress and MySQL data are retained. Deployment causes a brief service interruption while containers are recreated. Keep the server checkout clean: `git pull --ff-only` will fail if local tracked files have uncommitted changes or the local branch has diverged from `origin/main`. In particular, take care that runtime uploads or dashboard-installed content do not modify tracked files in `wp-content/`.
 
 ## Security and data notes
 
 - MySQL has no published host port; service traffic uses the private Compose network.
-- WordPress is published only on the host's loopback interface, on port `8080`.
+- WordPress is published on host port `8080`; restrict access with the server firewall or a TLS-enabled reverse proxy.
 - Named volumes persist WordPress files and MySQL data when containers are recreated.
 - WordPress runs directly from the official image; add image customization only if the project later needs custom PHP extensions or system packages.
 - `docker compose down` preserves the volumes. `docker compose down --volumes` deletes them and their data.
