@@ -25,10 +25,7 @@ services:
       start_period: 30s
 
   wordpress:
-    image: local-wordpress:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: wordpress:latest
     restart: unless-stopped
     depends_on:
       database:
