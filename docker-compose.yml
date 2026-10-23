@@ -32,7 +32,7 @@ services:
         condition: service_healthy
     ports:
       # Bind to the laptop only; the database is not published to the host.
-      - "127.0.0.1:8080:80"
+      - "8080:80"
     environment:
       WORDPRESS_DB_HOST: database:3306
       WORDPRESS_DB_NAME: ${WORDPRESS_DB_NAME:?Set WORDPRESS_DB_NAME in .env}
