@@ -78,6 +78,8 @@ docker compose down --volumes
 
 The repository's `wp-content/` folder is bind-mounted at `/var/www/html/wp-content`. Add or edit themes, plugins, and other content there; changes are available in the running container immediately. The folder is tracked by Git, so commit only content you intend to share.
 
+Because the bind mount replaces WordPress's default `/wp-content` tree, a minimal fallback theme is kept in `wp-content/themes/twentytwentyfive/` so the site does not render as a blank page when WordPress tries to use its default bundled theme.
+
 ### Add a theme
 
 1. Create a theme folder under `wp-content/themes/` and put the theme files in it. A theme needs at least a `style.css` stylesheet with a valid WordPress theme header and an `index.php` template.

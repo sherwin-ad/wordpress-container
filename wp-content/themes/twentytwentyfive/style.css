@@ -1,0 +1,32 @@
+/*
+Theme Name: Twenty Twenty-Five
+Theme URI: https://wordpress.org/themes/twentytwentyfive/
+Author: the WordPress team
+Description: Fallback theme for this local WordPress container when the bundled default theme is hidden by the bind mount.
+Version: 1.0.0
+Text Domain: twentytwentyfive
+*/
+
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    background: #f8f9fa;
+    color: #1d2327;
+}
+
+#page {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 2rem 1rem 4rem;
+}
+
+main {
+    background: #fff;
+    border: 1px solid #e2e4e7;
+    border-radius: 8px;
+    padding: 2rem;
+}
+
+article {
+    line-height: 1.7;
+}
