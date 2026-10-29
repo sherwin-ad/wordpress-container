@@ -50,4 +50,4 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            'cd "$HOME/wordpress-container" && git pull --ff-only origin main && docker compose --env-file .env pull && docker compose --env-file .env down && docker compose --env-file .env up -d --remove-orphans && docker compose --env-file .env ps'
+            'cd "$HOME/wordpress-container" && git clean -f -- wp-content/themes/twentytwentyfive/style.css && git pull --ff-only origin main && docker compose --env-file .env pull && docker compose --env-file .env down && docker compose --env-file .env up -d --remove-orphans && docker compose --env-file .env ps'
